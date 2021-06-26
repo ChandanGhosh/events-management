@@ -18,7 +18,7 @@ const (
 	APP_PORT    = "8181"
 )
 
-func ServeAPI(endpoint string, dbhandler persistence.DatabaseHandler) error {
+func ServeAPI(httpEndpoint, httpsEndpoint string, dbhandler persistence.DatabaseHandler) (chan error, chan error) {
 
 	handler := handler.NewEventServiceHandler(dbhandler)
 
@@ -29,11 +29,15 @@ func ServeAPI(endpoint string, dbhandler persistence.DatabaseHandler) error {
 	eventsrouter.Methods("GET").Path("").HandlerFunc(handler.AllEventsHandler)
 	eventsrouter.Methods("POST").Path("").HandlerFunc(handler.NewEventHandler)
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = APP_PORT
-	}
-	return http.ListenAndServe(endpoint, r)
+	httpError := make(chan error)
+	httpsError := make(chan error)
+	go func() {
+		httpError <- http.ListenAndServe(httpEndpoint, r)
+	}()
+	go func() {
+		httpsError <- http.ListenAndServeTLS(httpsEndpoint, "cert.pem", "key.pem", r)
+	}()
+	return httpError, httpsError
 }
 
 func main() {
@@ -45,5 +49,12 @@ func main() {
 		os.Exit(1)
 	}
 	dbhandler, _ := dblayer.NewPersistenceLayer(conf.DatabaseType, conf.DBConnection)
-	log.Fatalln(ServeAPI(conf.RestfulEndpoint, dbhandler))
+	httpErr, httpsErr := ServeAPI(conf.RestfulEndpoint, conf.RestfulTLSEndpoint, dbhandler)
+
+	select {
+	case err = <-httpErr:
+		log.Fatal("HTTP error: ", err)
+	case err = <-httpsErr:
+		log.Fatal("HTTPS error: ", err)
+	}
 }
