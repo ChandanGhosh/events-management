@@ -11,6 +11,7 @@ import (
 	"github.com/chandanghosh/events-management/events-service/handler"
 	"github.com/chandanghosh/events-management/events-service/persistence"
 	"github.com/gorilla/mux"
+	"github.com/streadway/amqp"
 )
 
 const (
@@ -41,6 +42,20 @@ func ServeAPI(httpEndpoint, httpsEndpoint string, dbhandler persistence.Database
 }
 
 func main() {
+	amqp_url := os.Getenv("AMQP_URL")
+	if amqp_url == "" {
+		amqp_url = "amqp://guest:guest@localhost:5672"
+	}
+	conn, err := amqp.Dial(amqp_url)
+	if err != nil {
+		log.Println("Error connecting to broker " + err.Error())
+	}
+	defer conn.Close()
+	channel, err := conn.Channel()
+	if err != nil {
+		panic("Could not open a channel on the broker " + err.Error())
+	}
+
 	confPath := flag.String("conf", `./configuration/config.json`, "flag to set the path to the configuration file.")
 	flag.Parse()
 	conf, err := configuration.ExtractConfiguration(*confPath)
