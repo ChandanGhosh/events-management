@@ -16,10 +16,11 @@ var (
 )
 
 type ServiceConfig struct {
-	DatabaseType       dblayer.DBTYPE `json:"databasetype"`
-	DBConnection       string         `json:"dbconnection"`
-	RestfulEndpoint    string         `json:"restfulendpoint"`
-	RestfulTLSEndpoint string         `json:"restfultlsendpoint"`
+	DatabaseType       dblayer.DBTYPE `json:"database_type"`
+	DBConnection       string         `json:"db_connection"`
+	RestfulEndpoint    string         `json:"restful_endpoint"`
+	RestfulTLSEndpoint string         `json:"restful_tls_endpoint"`
+	AMQPMessageBroker  string         `json:"amqp_message_broker"`
 }
 
 func ExtractConfiguration(filename string) (ServiceConfig, error) {
@@ -35,5 +36,8 @@ func ExtractConfiguration(filename string) (ServiceConfig, error) {
 		return conf, err
 	}
 	err = json.NewDecoder(file).Decode(&conf)
+	if broker:=os.Getenv("AMQP_URL"); broker!=""{
+		conf.AMQPMessageBroker = broker
+	}
 	return conf, err
 }

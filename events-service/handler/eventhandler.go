@@ -6,19 +6,24 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/chandanghosh/events-management/contracts"
+	"github.com/chandanghosh/events-management/contracts/lib/msgqueue"
 	"github.com/chandanghosh/events-management/events-service/persistence"
 	"github.com/gorilla/mux"
 	"gopkg.in/mgo.v2/bson"
 )
 
 type EventServiceHandler struct {
-	dbhandler persistence.DatabaseHandler
+	dbhandler    persistence.DatabaseHandler
+	eventEmitter msgqueue.EventEmitter
 }
 
-func NewEventServiceHandler(databaseHandler persistence.DatabaseHandler) *EventServiceHandler {
+func NewEventServiceHandler(databaseHandler persistence.DatabaseHandler, eventEmitter msgqueue.EventEmitter) *EventServiceHandler {
 	return &EventServiceHandler{
-		dbhandler: databaseHandler,
+		dbhandler:    databaseHandler,
+		eventEmitter: eventEmitter,
 	}
 }
 
@@ -71,6 +76,7 @@ func (eh *EventServiceHandler) AllEventsHandler(w http.ResponseWriter, r *http.R
 	json.NewEncoder(w).Encode(&events)
 }
 
+// NewEventHandler handles creation of new event and publishing the createdevent to msgbroker
 func (eh *EventServiceHandler) NewEventHandler(w http.ResponseWriter, r *http.Request) {
 	var event persistence.Event
 	var err error
@@ -87,6 +93,18 @@ func (eh *EventServiceHandler) NewEventHandler(w http.ResponseWriter, r *http.Re
 		fmt.Fprintf(w, `{error: error occure saving event %s }`, err)
 		return
 	}
+	msg := contracts.EventCreatedEvent{
+		ID:         hex.EncodeToString(id),
+		Name:       event.Name,
+		LocationID: event.Location.ID,
+		Start:      time.Unix(event.StartDate, 0),
+		End:        time.Unix(event.EndDate, 0),
+	}
+	err = eh.eventEmitter.Emit(&msg)
+	if err != nil {
+		fmt.Printf("Error publishing EventCreated to broker, %s", err)
+	}
+
 	w.WriteHeader(201)
 	event.ID = bson.ObjectId(id)
 	json.NewEncoder(w).Encode(&event)

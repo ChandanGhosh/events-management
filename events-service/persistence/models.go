@@ -12,6 +12,7 @@ type Event struct {
 }
 
 type Location struct {
+	ID        string
 	Name      string
 	Address   string
 	Country   string

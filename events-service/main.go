@@ -4,7 +4,6 @@ import (
 	"flag"
 	"log"
 	"net/http"
-	"os"
 
 	"github.com/chandanghosh/events-management/events-service/configuration"
 	"github.com/chandanghosh/events-management/events-service/dblayer"
@@ -12,23 +11,21 @@ import (
 	"github.com/chandanghosh/events-management/events-service/persistence"
 	"github.com/gorilla/mux"
 	"github.com/streadway/amqp"
+
+	"github.com/chandanghosh/events-management/contracts/lib/msgqueue"
+	"github.com/chandanghosh/events-management/contracts/lib/msgqueue/mqp"
 )
 
-const (
-	DB_CONN_STR = "mongo://localhost:27017/admin"
-	APP_PORT    = "8181"
-)
+func ServeAPI(httpEndpoint, httpsEndpoint string, dbhandler persistence.DatabaseHandler, eventEmitter msgqueue.EventEmitter) (chan error, chan error) {
 
-func ServeAPI(httpEndpoint, httpsEndpoint string, dbhandler persistence.DatabaseHandler) (chan error, chan error) {
-
-	handler := handler.NewEventServiceHandler(dbhandler)
+	handler := handler.NewEventServiceHandler(dbhandler, eventEmitter)
 
 	r := mux.NewRouter()
-	eventsrouter := r.PathPrefix("events").Subrouter()
+	eventsRouter := r.PathPrefix("events").Subrouter()
 
-	eventsrouter.Methods("GET").Path("/{searchcriteria}/{search}").HandlerFunc(handler.FindEventsHandler)
-	eventsrouter.Methods("GET").Path("").HandlerFunc(handler.AllEventsHandler)
-	eventsrouter.Methods("POST").Path("").HandlerFunc(handler.NewEventHandler)
+	eventsRouter.Methods("GET").Path("/{searchcriteria}/{search}").HandlerFunc(handler.FindEventsHandler)
+	eventsRouter.Methods("GET").Path("").HandlerFunc(handler.AllEventsHandler)
+	eventsRouter.Methods("POST").Path("").HandlerFunc(handler.NewEventHandler)
 
 	httpError := make(chan error)
 	httpsError := make(chan error)
@@ -42,29 +39,38 @@ func ServeAPI(httpEndpoint, httpsEndpoint string, dbhandler persistence.Database
 }
 
 func main() {
-	amqp_url := os.Getenv("AMQP_URL")
-	if amqp_url == "" {
-		amqp_url = "amqp://guest:guest@localhost:5672"
-	}
-	conn, err := amqp.Dial(amqp_url)
-	if err != nil {
-		log.Println("Error connecting to broker " + err.Error())
-	}
-	defer conn.Close()
-	channel, err := conn.Channel()
-	if err != nil {
-		panic("Could not open a channel on the broker " + err.Error())
-	}
+	// amqp_url := os.Getenv("AMQP_URL")
+	// if amqp_url == "" {
+	// 	amqp_url = "amqp://guest:guest@localhost:5672"
+	// }
+	// conn, err := amqp.Dial(amqp_url)
+	// if err != nil {
+	// 	log.Println("Error connecting to broker " + err.Error())
+	// }
+	// defer conn.Close()
+	// channel, err := conn.Channel()
+	// if err != nil {
+	// 	panic("Could not open a channel on the broker " + err.Error())
+	// }
 
 	confPath := flag.String("conf", `./configuration/config.json`, "flag to set the path to the configuration file.")
 	flag.Parse()
 	conf, err := configuration.ExtractConfiguration(*confPath)
 	if err != nil {
 		log.Fatalf("The configuration can not be extracted. error: %s", err)
-		os.Exit(1)
 	}
+	conn, err := amqp.Dial(conf.AMQPMessageBroker)
+	if err != nil {
+		panic(err)
+	}
+
+	emitter, err := mqp.NewAMQPEventEmitter(conn)
+	if err != nil {
+		panic(err)
+	}
+
 	dbhandler, _ := dblayer.NewPersistenceLayer(conf.DatabaseType, conf.DBConnection)
-	httpErr, httpsErr := ServeAPI(conf.RestfulEndpoint, conf.RestfulTLSEndpoint, dbhandler)
+	httpErr, httpsErr := ServeAPI(conf.RestfulEndpoint, conf.RestfulTLSEndpoint, dbhandler, emitter)
 
 	select {
 	case err = <-httpErr:
